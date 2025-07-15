@@ -33,17 +33,17 @@
         <dependency>
             <groupId>org.apache.beam</groupId>
             <artifactId>beam-runners-google-cloud-dataflow-java</artifactId>
-            <version>2.66.0</version> <!-- o la stessa versione del tuo Beam SDK -->
+            <version>2.66.0</version>
         </dependency>
 
-        <!-- BigQuery I/O (per futuro) -->
+        <!-- BigQuery I/O -->
         <dependency>
             <groupId>org.apache.beam</groupId>
             <artifactId>beam-sdks-java-io-google-cloud-platform</artifactId>
             <version>${beam.version}</version>
         </dependency>
 
-        <!-- Jackson JSON (allinea a Beam) -->
+        <!-- Jackson JSON -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
@@ -80,7 +80,6 @@
                   <configuration>
                     <createDependencyReducedPom>false</createDependencyReducedPom>
 
-                    <!-- filtra firme -->
                     <filters>
                       <filter>
                         <artifact>*:*</artifact>
@@ -93,11 +92,9 @@
                     </filters>
 
                     <transformers>
-                      <!-- mantiene il Main-Class -->
                       <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                         <mainClass>com.sky.ingestor.MainPipeline</mainClass>
                       </transformer>
-                      <!-- unisce i file META-INF/services invece di sovrascriverli -->
                       <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                     </transformers>
                   </configuration>
