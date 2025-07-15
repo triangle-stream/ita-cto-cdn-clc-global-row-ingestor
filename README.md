@@ -1,7 +1,7 @@
 ## For testing:
 - Clone the repo and put some .gz logs into the Ready bucket;
 - Package the jar (it will generate the jar into the target/ dir)
-   ```bash
+```bash
 mvn clean package
 ```
 - Launch the dataflow:
