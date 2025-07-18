@@ -3,7 +3,7 @@ import gzip
 import os
 import random
 
-MODEL_PATH = "src/main/resources/models/cloudfront_model.json"
+MODEL_PATH = "src/main/resources/models/akamai_model.json"
 LOG_DIR = "logs"
 
 def load_model():
@@ -30,7 +30,7 @@ def print_debug_for_line(line, model):
 def main():
     model = load_model()
     for fname in os.listdir(LOG_DIR):
-        if fname.endswith("BIG.gz"):
+        if fname.endswith("MF.gz"):
             full_path = os.path.join(LOG_DIR, fname)
             print(f"\nFILE: {fname}")
             line = extract_random_line(full_path)

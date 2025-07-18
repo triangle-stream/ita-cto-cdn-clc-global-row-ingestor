@@ -35,15 +35,15 @@ public class ServiceResolver {
 
 
 
-        if (host.contains("cdn13.skycdp.com")) {
+        if (host.contains("cdn13.skycdp.com") || host.contains("cssott02.com")) {
             if (host.contains("vod")) return "nowtv_vod_";
-            if (host.contains("lin")) return "nowtv_linear_";
+            if (host.contains("lin")) return "nowtv_linear";
         } else if (host.contains("cdn03.skycdp.com")) {
             if (host.contains("vod")) return "soip_vod_";
-            if (host.contains("lin")) return "soip_linear_";
+            if (host.contains("lin")) return "soip_linear";
         } else if (host.contains("c02.skycdp.com")) {
             if (host.contains("vod")) return "soip_vod_";
-            if (host.contains("lin")) return "soip_linear_";
+            if (host.contains("lin")) return "soip_linear";
         } else if (host.contains("sit-vod-stb")) {
             return "soip_vod_";
         } else if (host.contains("linear")) {
