@@ -8,6 +8,11 @@ mvn clean package
 
 ```bash
 java -cp target/ingestor-1.0-SNAPSHOT.jar      com.sky.ingestor.MainPipeline      --runner=DataflowRunner      --project=sky-it-telemetry-clt-dev      --region=europe-west1      --tempLocation=gs://sky-it-telemetry-clt-dev-ready/temp      --stagingLocation=gs://sky-it-telemetry-clt-dev-ready/staging      --inputFilePattern=gs://sky-it-telemetry-clt-dev-ready/CDN_ITA/*.gz      --jobName=uk-log-ingestor-testBQ-$(date +%s) --gcpTempLocation=gs://sky-it-telemetry-clt-dev-ready/temp --bqProject=sky-it-telemetry-clt-dev
+
+or
+
+java -cp target/ingestor-1.0-SNAPSHOT.jar      com.sky.ingestor.MainPipeline      --runner=DataflowRunner      --project=sky-it-telemetry-clt-dev      --region=europe-west1      --tempLocation=gs://sky-it-telemetry-clt-dev-ready/temp      --stagingLocation=gs://sky-it-telemetry-clt-dev-ready/staging      --inputFilePattern=gs://sky-it-telemetry-clt-dev-ready/CDN_ITA/*.gz      --bqProject=sky-it-telemetry-clt-dev      --jobName=uk-log-ingestor-testBQ-$(date +%s)
+
 ```
 - The output - at this stage - will be saved as non-gzipped text files into the Ready bucket, test_output prefix.
 

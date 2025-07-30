@@ -7,7 +7,8 @@ public class RowMapperFactory {
     private static final Map<String,RowMapper> BY_MODEL =
         Map.of(
            "akamai",      new RowMapperAkamai(),
-           "cloudfront",  new RowMapperCloudfront()
+           "cloudfront",  new RowMapperCloudfront(),
+           "skycdn",      new RowMapperSkycdn()
            // ,"raiway", new RowMapperRaiway()
         );
 

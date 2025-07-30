@@ -1,9 +1,13 @@
 package com.sky.ingestor;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.values.KV;
-import java.util.*;
 
+
+// Parse log's fields, using spaces or tabs as separators */
 public class ParseLogFn extends DoFn<String, KV<String, Map<String, String>>> {
     private final Map<String, Integer> mapping;
 
@@ -13,7 +17,6 @@ public class ParseLogFn extends DoFn<String, KV<String, Map<String, String>>> {
 
     @ProcessElement
     public void processElement(@Element String line, OutputReceiver<KV<String, Map<String, String>>> out) {
-        //// String[] fields = line.split(" ");
         String[] fields = line.trim().split("\\s+");
         Map<String, String> row = new HashMap<>();
         for (Map.Entry<String, Integer> e : mapping.entrySet()) {

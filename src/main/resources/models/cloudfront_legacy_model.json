@@ -1,0 +1,18 @@
+{
+  "date": 0,
+  "time": 1,
+  "csIp": 2,
+  "csMethod": 3,
+  "csUriStem": 4,
+  "scStatus": 5,
+  "scBytes": 6,
+  "timeTaken": 7,
+  "csReferer": 8,
+  "csUserAgent": 9,
+  "csCookie": 10,
+  "cPort": 11,
+  "xEdgeLocation": 12,
+  "cache_status": 13,
+  "xHostHeader": 14,
+  "smart_card": 15
+}

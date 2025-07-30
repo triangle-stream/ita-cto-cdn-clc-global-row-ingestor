@@ -1,18 +1,23 @@
 package com.sky.ingestor;
 
+import java.io.InputStream;
+import java.util.HashMap;
+import java.util.Map;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import java.io.InputStream;
-import java.util.*;
+// Detect CDN name from filename and load models from classpath
 
 public class ModelResolver {
-    private static final String[] modelNames = {"akamai", "cloudfront", "raiway"};
+    private static final String[] modelNames = {"akamai", "cloudfront", "cloudfront_legacy","raiway", "skycdn"};
 
     public static String detectModel(String filename) {
         String name = filename.toLowerCase();
         if (name.contains("akamai")) return "akamai";
         if (name.contains("cloudfront")) return "cloudfront";
+        if (name.contains("awscdn")) return "cloudfront_legacy";
         if (name.contains("raiway")) return "raiway";
+        if (name.contains("sn-")) return "skycdn";
         return null;
     }
 
