@@ -12,7 +12,6 @@ import java.util.Set;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.KvCoder;
-import org.apache.beam.sdk.coders.MapCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.io.Compression;
 import org.apache.beam.sdk.io.FileIO;
@@ -30,18 +29,20 @@ import org.apache.beam.sdk.metrics.Metrics;
 import org.apache.beam.sdk.options.Description;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.Validation;
-/// Imports for debugging and logging
 import org.apache.beam.sdk.options.ValueProvider;
-import org.apache.beam.sdk.transforms.Contextful;
 import org.apache.beam.sdk.transforms.Create;
+/// Imports for debugging and logging
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.Filter;
+import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.ParDo;
+import org.apache.beam.sdk.transforms.Partition;
 import org.apache.beam.sdk.transforms.View;
-import org.apache.beam.sdk.transforms.WithKeys;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.PCollectionList;
 import org.apache.beam.sdk.values.PCollectionView;
+import org.apache.beam.sdk.values.TypeDescriptors;
 import org.apache.beam.sdk.values.ValueInSingleWindow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,6 +63,10 @@ public class CLTIngestorUK {
         @Validation.Required
         ValueProvider<String> getInputFileList();
         void setInputFileList(ValueProvider<String> value);    
+        
+        @Description("GCS prefix for nomatch TXT output, e.g. gs://sky-it-telemetry-clt-dev-ready/test-output/ (must end with /)")
+        ValueProvider<String> getTxtOutputPrefix();
+        void setTxtOutputPrefix(ValueProvider<String> value);
     }
 
     /// Logging 
@@ -297,28 +302,84 @@ public class CLTIngestorUK {
             }
       }));
 
-        // Write to TXT files
-        parsed
-          .apply("FilterTxtNomatchOnly",
-                 Filter.by(m -> "nomatch".equals(m.get("_service"))))
-          // assegna la chiave (destinazione) senza cambiare il valore
-          .apply("AddKey",
-                 WithKeys.of((Map<String,String> m) ->
-                       m.get("_model") + "_" + "nomatch" + "_" + dateSuffix))
-          // utf8 ---- serve un coder esplicito per Map<String,String>
-          .setCoder(KvCoder.of(StringUtf8Coder.of(),
-                               MapCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of())))
+        // Write to TXT files - nomatch only
+        PCollection<Map<String,String>> nomatch =
+            parsed.apply("FilterTxtNomatchOnly", Filter.by(m -> "nomatch".equals(m.get("_service"))));
 
-          // scrittura dinamica su GCS
-          .apply("WriteTxt",
-                 FileIO.<String, KV<String,Map<String,String>>>writeDynamic()
-                   .by(KV::getKey)                                 // destinazione
-                   .withDestinationCoder(StringUtf8Coder.of())
-                   .via(Contextful.fn(kv -> kv.getValue().toString()), TextIO.sink())
-                   .to("gs://sky-it-telemetry-clt-dev-ready/test-output/")
-                   .withNaming(key -> FileIO.Write.defaultNaming(key, ".txt")));
+        PCollection<KV<String, String>> nomatchByModel =
+            nomatch.apply("ToKVModelLine", MapElements.into(
+                    TypeDescriptors.kvs(TypeDescriptors.strings(), TypeDescriptors.strings()))
+                .via(m -> KV.of(m.getOrDefault("_model", "unknown"), m.toString())));
 
-
-        p.run().waitUntilFinish();
+        PCollectionList<KV<String,String>> partsKV =
+            nomatchByModel.apply("PartitionByModel",
+                Partition.of(4, (Partition.PartitionFn<KV<String,String>>) (kv, numPartitions) -> {
+                  String model = kv.getKey();
+                  if ("akamai".equals(model))     return 0;
+                  if ("cloudfront".equals(model)) return 1;
+                  if ("skycdn".equals(model))     return 2;
+                  if ("raiway".equals(model))     return 3;  // TODO when raiway lands
+                  return 3; // fallback
+                }));
+            
+        PCollection<String> akamaiLines    = partsKV.get(0)
+            .apply("DropKeyAkamai",    MapElements.into(TypeDescriptors.strings()).via(KV::getValue));
+        PCollection<String> cloudfrontLines = partsKV.get(1)
+            .apply("DropKeyCloudFront",MapElements.into(TypeDescriptors.strings()).via(KV::getValue));
+        PCollection<String> skycdnLines     = partsKV.get(2)
+            .apply("DropKeySkyCDN",    MapElements.into(TypeDescriptors.strings()).via(KV::getValue));
+        PCollection<String> raiwayLines     = partsKV.get(3)
+            .apply("DropKeyRaiway",    MapElements.into(TypeDescriptors.strings()).via(KV::getValue));
+            
+        PCollectionList<String> parts = PCollectionList.of(akamaiLines)
+            .and(cloudfrontLines)
+            .and(skycdnLines)
+            .and(raiwayLines);
+            
+        ValueProvider<String> basePrefix = options.getTxtOutputPrefix(); // must end with '/'
+            
+        // For each model, build the file prefix like: <base>/akamai_nomatch_<YYYYMMDD>
+        ValueProvider<String> akamaiPrefix = ValueProvider.NestedValueProvider.of(
+            basePrefix, (String b) -> (b.endsWith("/") ? b : b + "/") + "akamai_nomatch_" + dateSuffix);
+        ValueProvider<String> cloudfrontPrefix = ValueProvider.NestedValueProvider.of(
+            basePrefix, (String b) -> (b.endsWith("/") ? b : b + "/") + "cloudfront_nomatch_" + dateSuffix);
+        ValueProvider<String> skycdnPrefix = ValueProvider.NestedValueProvider.of(
+            basePrefix, (String b) -> (b.endsWith("/") ? b : b + "/") + "skycdn_nomatch_" + dateSuffix);
+        ValueProvider<String> raiwayPrefix = ValueProvider.NestedValueProvider.of(
+            basePrefix, (String b) -> (b.endsWith("/") ? b : b + "/") + "raiway_nomatch_" + dateSuffix);
+            
+        // Write each partition only if it has elements;
+        parts.get(0).apply("WriteTXT_akamai",
+            TextIO.write()
+                  .to(akamaiPrefix)
+                  .withSuffix(".txt.gz")
+                  .withCompression(Compression.GZIP)
+                  .withNumShards(1)
+                  .withShardNameTemplate("-SSSS-of-NNNN"));
+            
+        parts.get(1).apply("WriteTXT_cloudfront",
+            TextIO.write()
+                  .to(cloudfrontPrefix)
+                  .withSuffix(".txt.gz")
+                  .withCompression(Compression.GZIP)
+                  .withNumShards(1)
+                  .withShardNameTemplate("-SSSS-of-NNNN"));
+            
+        parts.get(2).apply("WriteTXT_skycdn",
+            TextIO.write()
+                  .to(skycdnPrefix)
+                  .withSuffix(".txt.gz")
+                  .withCompression(Compression.GZIP)
+                  .withNumShards(1)
+                  .withShardNameTemplate("-SSSS-of-NNNN"));
+            
+        parts.get(3).apply("WriteTXT_raiway",
+            TextIO.write()
+                  .to(raiwayPrefix)
+                  .withSuffix(".txt.gz")
+                  .withCompression(Compression.GZIP)
+                  .withNumShards(1)
+                  .withShardNameTemplate("-SSSS-of-NNNN"));
+            
     }
 }
