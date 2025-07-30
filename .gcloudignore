@@ -1,0 +1,10 @@
+# .gcloudignore
+.gcloudignore
+.git
+.gitignore
+**/.idea/
+**/.vscode/
+*.iml
+*.log
+target/
+

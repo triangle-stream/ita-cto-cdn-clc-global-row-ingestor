@@ -1,0 +1,44 @@
+options:
+  automapSubstitutions: true
+
+steps:
+  - name: 'maven:3.9.6-eclipse-temurin-17'
+    entrypoint: bash
+    args:
+      - -lc
+      - |
+        set -euo pipefail
+        mvn -DskipTests clean package -U
+        ls -l target
+
+  - name: 'eclipse-temurin:17'
+    dir: .
+    entrypoint: bash
+    args:
+      - -lc
+      - |
+        set -euo pipefail
+        set -x
+        echo "Using:"
+        echo "  PROJECT=$_PROJECT"
+        echo "  REGION=$_REGION"
+        echo "  VERSION=$_VERSION"
+
+        echo "Current directory: $(pwd)"
+        ls -l target
+       
+
+        java -cp "target/dataflow-clt-ingestor-uk-$_VERSION-shaded.jar" \
+          com.sky.ingestor.CLTIngestorUK \
+          --runner=DataflowRunner \
+          --project="$_PROJECT" \
+          --region="$_REGION" \
+          --gcpTempLocation="gs://$_PROJECT-dataflow/tempLocation" \
+          --templateLocation="gs://$_PROJECT-dataflow/templateLocation/it.sky.technology.telemetry.clt.CLTIngestorUK.$_VERSION" \
+          --stagingLocation="gs://$_PROJECT-dataflow/staging" \
+
+substitutions:
+  _PROJECT: 'sky-it-telemetry-clt-stage'
+  _REGION: 'europe-west1'
+  _VERSION: '0.1.0'
+
