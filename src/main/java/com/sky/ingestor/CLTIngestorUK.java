@@ -380,6 +380,8 @@ public class CLTIngestorUK {
                   .withCompression(Compression.GZIP)
                   .withNumShards(1)
                   .withShardNameTemplate("-SSSS-of-NNNN"));
-            
+        
+        // Run the pipeline
+        p.run();        
     }
 }

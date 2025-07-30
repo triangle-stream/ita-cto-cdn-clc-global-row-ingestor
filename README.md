@@ -11,11 +11,22 @@ java -cp target/ingestor-1.0-SNAPSHOT.jar      com.sky.ingestor.MainPipeline    
 
 or
 
-java -cp target/ingestor-1.0-SNAPSHOT.jar      com.sky.ingestor.MainPipeline      --runner=DataflowRunner      --project=sky-it-telemetry-clt-dev      --region=europe-west1      --tempLocation=gs://sky-it-telemetry-clt-dev-ready/temp      --stagingLocation=gs://sky-it-telemetry-clt-dev-ready/staging      --inputFilePattern=gs://sky-it-telemetry-clt-dev-ready/CDN_ITA/*.gz      --bqProject=sky-it-telemetry-clt-dev      --jobName=uk-log-ingestor-testBQ-$(date +%s)
+java -cp target/ingestor-1.0-SNAPSHOT.jar      com.sky.ingestor.MainPipeline      
+--runner=DataflowRunner     
+--project=sky-it-telemetry-clt-dev     
+--region=europe-west1     
+--tempLocation=gs://sky-it-telemetry-clt-dev-ready/temp      
+--stagingLocation=gs://sky-it-telemetry-clt-dev-ready/staging      
+--inputFilePattern=gs://sky-it-telemetry-clt-dev-ready/CDN_ITA/*.gz      
+--bqProject=sky-it-telemetry-clt-dev      
+--jobName=uk-log-ingestor-testBQ-$(date +%s)
 
 ```
-- The output - at this stage - will be saved as non-gzipped text files into the Ready bucket, test_output prefix.
 
-Since it's a Dev env, we're using the same bucket (Ready) for everything (dataflow temp/stage location, source files/logs, generated output).
+## Cloudbuild build and jar upload:
 
-**Please note** that this is still a starting point, json models have to be tailored and any other functionality - right now - is not intended to be precise. What we want now is a working code.
+```bash
+
+gcloud builds submit   --config cloudbuild.yaml --project=sky-it-telemetry-clt-stage   --substitutions _PROJECT=sky-it-telemetry-clt-stage,_REGION=europe-west1,_VERSION=0.1.0
+
+```bash
