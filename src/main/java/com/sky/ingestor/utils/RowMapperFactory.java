@@ -8,8 +8,8 @@ public class RowMapperFactory {
         Map.of(
            "akamai",      new RowMapperAkamai(),
            "cloudfront",  new RowMapperCloudfront(),
-           "skycdn",      new RowMapperSkycdn()
-           // ,"raiway", new RowMapperRaiway()
+           "skycdn",      new RowMapperSkycdn(),
+           "raiway", new RowMapperRaiway()
         );
 
     public static RowMapper get(String model){

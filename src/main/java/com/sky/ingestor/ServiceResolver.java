@@ -31,9 +31,18 @@ public class ServiceResolver {
             case "cloudfront":
                 return new String[]{ lc(row,"xHostHeader"),
                                      lc(row,"csUriStem")   };
-            case "raiway":      // stessi campi di CloudFront
-                return new String[]{ lc(row,"xHostHeader"),
-                                     lc(row,"csUriStem")   };
+            case "raiway": {
+                String url  = row.getOrDefault("csUri", "");
+                String host = lc(row, "requestedHost");
+                if (host.isEmpty() || "-".equals(host)) {
+                    host = hostFromUrl(url); // già lowercase
+                }
+                String path = lc(row, "csUriStem");
+                if (path.isEmpty()) {
+                    path = url.toLowerCase();
+                }
+                return new String[]{ host, path };
+        }
             case "skycdn": {
                 String url  = row.getOrDefault("csUri", "");
                 String host = lc(row, "requestedHost");
@@ -82,7 +91,7 @@ public class ServiceResolver {
     }
     /// VODSTB before Soip cause sometimes they share the host c02.skycdp.com
     private static boolean isVodStb(String host,String path){        
-        return host.contains("stb") || path.contains("stb") || host.contains("vod-stb");
+        return host.contains("stb") || path.contains("stb") || host.contains("vod-stb") || host.contains("pdl") || path.contains("nff");
     }    
     private static boolean isSoip(String host,String path){
         return host.contains("cdn03.skycdp.com") || path.contains("cdn03.skycdp.com") || path.contains("/100e/") ||
@@ -103,8 +112,8 @@ public class ServiceResolver {
         String   path = hp[1];
 
         boolean live = isLive(host,path);
-        boolean vod  = isVod(host,path);
         boolean vodstb = isVodStb(host,path);
+        boolean vod  = isVod(host,path);
         boolean ads = isAds(host,path);
         boolean ivod = isIvod(host,path);
         boolean npvr = isNpvr(host,path);
