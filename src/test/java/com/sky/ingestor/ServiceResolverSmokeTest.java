@@ -40,8 +40,8 @@ public class ServiceResolverSmokeTest {
                 break;
 
             case "raiway":
-                m.put("xHostHeader", tok(t, 15));
-                m.put("csUriStem",   tok(t, 7));
+                m.put("xHostHeader", tok(t, 4));
+                m.put("csUriStem",   tok(t, 5));
                 break;
 
             default:
@@ -80,14 +80,14 @@ public class ServiceResolverSmokeTest {
 
     @Test
     void cloudfront_nomatch_smoke() {
-        String model = "skycdn";
+        String model = "cloudfront";
         String line =
-            "2025-07-27T08:44:59Z 101.56.215.179 sn-ec0106-mica1 80 vod-stb-sn.prd-origin.skycdn.it http://sn-ec0106-mica1.it-http-vod-stb-sn.ds.c02.skycdp.com/live/HD/sky/AUXILIARY_ASSET_INSTANCE/sky-IDEC0000000000000680-202105191440400000.nff?u=41481991&c=i&s=n&p=559079261&a=2&t=s GET 206 0 188 200 188 FIN FIN TCP_MISS DIRECT 101.56.215.179 vod-stb-sn.prd-origin.skycdn.it 101.62.241.69 GW-Device/1.0.0%20(Sky,%20ESi160,%20) urn:sky:vod:skyqgw:unknown 0 0 text/plain 0 - -,-,-,- 622 HTTP/1.1";
+            "2025-07-19	11:40:45	MXP53-P1	5557	82.84.254.139	GET	d21j30jdjsbkrl.cloudfront.net	/v1/frag/bmff/enc/cenc/t/IT2904_UD_SI_SKYIT_2904_0_6995676152322376163/track-iframe-periodid-912978875-repid-iframe1-tc-0-header.mp4	200	-	Mozilla/5.0%20(Linux;%20x86_64%20GNU/Linux)%20AppleWebKit/601.1%20(KHTML,%20like%20Gecko)%20Version/8.0%20Safari/601.1%20WPE%20FOG/3.0.0	-	-	Miss	8h8uqIb0JZ9Uv_-lOjmLtZIgQTHwsEx7Y0U56ouq5G-f5BbOzzLJow==	lin202-it-s8-prd-cf.cdn03.skycdp.com	https	443	0.038	-	TLSv1.3	TLS_AES_128_GCM_SHA256	Miss	HTTP/1.1	-	-	63435	0.038	Miss	video/mp4	4353	-	-";
 
         Map<String,String> row = parseMinimal(model, line);
         String service = ServiceResolver.resolveService(row);
 
         System.out.println("MODEL=" + model + " HOST=" + row.get("xHostHeader") + " PATH=" + row.get("csUriStem") + " → SERVICE=" + service);
-        assertEquals("vod_stb", service);
+        assertEquals("soip_linear", service);
     }
 }

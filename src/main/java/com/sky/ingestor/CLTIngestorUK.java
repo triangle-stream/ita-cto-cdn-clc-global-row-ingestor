@@ -211,7 +211,16 @@ public class CLTIngestorUK {
                   if(model==null || !models.containsKey(model)) return;
             
                   Map<String,Integer> mapping = models.get(model);
-                  String[] toks = line.trim().split("\\s+");
+                  //String[] toks = line.trim().split("\\s+");
+                  String[] toks;
+                    switch (model) {
+                      case "raiway":
+                        toks = line.split("\t", -1);
+                        break;
+                      default:
+                        toks = line.trim().split("\\s+");
+                    }
+
                   Map<String,String> row = new HashMap<>();
                   mapping.forEach((k,idx)-> row.put(k, idx<toks.length ? toks[idx] : ""));
             

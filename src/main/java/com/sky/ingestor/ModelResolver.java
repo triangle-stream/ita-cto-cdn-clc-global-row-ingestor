@@ -6,20 +6,36 @@ import java.util.Map;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-// Detect CDN name from filename and load models from classpath
 
-public class ModelResolver {
-    private static final String[] modelNames = {"akamai", "cloudfront", "cloudfront_legacy","raiway", "skycdn"};
+    public class ModelResolver {
+        private static final String[] modelNames = {"akamai", "cloudfront", "cloudfront_legacy","raiway", "skycdn"};
 
-    public static String detectModel(String filename) {
-        String name = filename.toLowerCase();
+        public static String detectModel(String filename) {
+        if (filename == null) return null;
+
+        final String name = filename.toLowerCase();
+
+        String base = filename;
+        int slash = base.lastIndexOf('/');
+        if (slash >= 0 && slash + 1 < base.length()) {
+            base = base.substring(slash + 1);
+        }
+
+        if (!base.isEmpty() && base.charAt(0) == 'E') {
+            return "cloudfront";
+        }
+
+        if (name.contains("aws") || name.contains("awscdn")) {
+            return "cloudfront_legacy";
+        }
+
         if (name.contains("akamai")) return "akamai";
-        if (name.contains("cloudfront")) return "cloudfront";
-        if (name.contains("awscdn")) return "cloudfront_legacy";
         if (name.contains("raiway")) return "raiway";
-        if (name.contains("sn-")) return "skycdn";
+        if (name.contains("sn-"))    return "skycdn";
+
         return null;
     }
+
 
     public static Map<String, Map<String, Integer>> loadAllModels() throws Exception {
         Map<String, Map<String, Integer>> models = new HashMap<>();
