@@ -1,7 +1,9 @@
 package com.sky.ingestor;
 
 // Imports for Java
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
@@ -73,6 +75,11 @@ public class CLTIngestorUK {
     private static final Logger LOG = LoggerFactory.getLogger(CLTIngestorUK.class);   
     private static final Counter PARSED            =
         Metrics.counter(CLTIngestorUK.class, "parsed_rows");
+
+    // DateTime for date_insert column
+    private static final DateTimeFormatter DT_INS =
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
+                     .withZone(ZoneOffset.UTC);
 
     // OTT Services (skyGO/NowTV/SkyQ)
     private static final Set<String> OTT_SERVICES = Set.of(
@@ -243,6 +250,12 @@ public class CLTIngestorUK {
     PCollection<KV<String, TableRow>> rowsForBq =
         parsed.apply("ToBQRowsWithDestination", ParDo.of(new DoFn<Map<String,String>, KV<String,TableRow>>() {
 
+            private String bundleInsertTs;
+            @StartBundle
+            public void startBundle() {
+                bundleInsertTs = DT_INS.format(Instant.now());  // es. "2025-07-31 12:34:56.789"
+            }
+
             @ProcessElement
             public void processElement(ProcessContext c){
                 Map<String,String> m = c.element();
@@ -261,6 +274,7 @@ public class CLTIngestorUK {
                 if (row == null) return;
 
                 row.set("file_name", m.getOrDefault("_file_name", ""));
+                row.set("date_insert", bundleInsertTs);
 
                 String dataset = datasetFor(model, service);
                 String table   = tableFor(service);

@@ -1,5 +1,8 @@
 package com.sky.ingestor;
 
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -11,6 +14,10 @@ import org.junit.jupiter.api.Test;
  */
 
 public class ServiceResolverSmokeTest {
+
+    private static final DateTimeFormatter DT_INS =
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
+                         .withZone(ZoneOffset.UTC);
 
     private static String tok(String[] a, int idx){
         return (a != null && idx >= 0 && idx < a.length) ? a[idx] : "";
@@ -49,6 +56,10 @@ public class ServiceResolverSmokeTest {
         return m;
     }
 
+    private static String nowDateInsertUtc() {
+        return DT_INS.format(Instant.now());
+    }
+
     @Test
     void skycdn_nowtv_linear_example() {
         String model = "skycdn";
@@ -80,14 +91,15 @@ public class ServiceResolverSmokeTest {
 
     @Test
     void cloudfront_nomatch_smoke() {
-        String model = "cloudfront";
+        String model = "skycdn";
         String line =
-            "2025-07-19	11:40:45	MXP53-P1	5557	82.84.254.139	GET	d21j30jdjsbkrl.cloudfront.net	/v1/frag/bmff/enc/cenc/t/IT2904_UD_SI_SKYIT_2904_0_6995676152322376163/track-iframe-periodid-912978875-repid-iframe1-tc-0-header.mp4	200	-	Mozilla/5.0%20(Linux;%20x86_64%20GNU/Linux)%20AppleWebKit/601.1%20(KHTML,%20like%20Gecko)%20Version/8.0%20Safari/601.1%20WPE%20FOG/3.0.0	-	-	Miss	8h8uqIb0JZ9Uv_-lOjmLtZIgQTHwsEx7Y0U56ouq5G-f5BbOzzLJow==	lin202-it-s8-prd-cf.cdn03.skycdp.com	https	443	0.038	-	TLSv1.3	TLS_AES_128_GCM_SHA256	Miss	HTTP/1.1	-	-	63435	0.038	Miss	video/mp4	4353	-	-";
+            "2025-07-31T06:54:00Z 5.90.27.5 sn-ec0107-rmsa1 80 sn-mc0102-rmsa1.c02.skycdp.com http://vod008-it-hls1-prd-sn.cdn13.skycdp.com/100e/skyplayer/VIT3/VGC/skyatlantic/UAT41676/e077666c-14d4-43b7-9744-0aec7f2a358b-S/encrypted/26711b33-ec21-4148-8e01-ec992163879d/audio_1/audio_1_155.ts GET 200 1 469632 200 469632 FIN FIN TCP_MISS PARENT_HIT - sn-mc0102-rmsa1.c02.skycdp.com 101.62.241.38 Mozilla/5.0%20%28Linux%3B%20x86_64%20GNU/Linux%29%20AppleWebKit/601.1%20%28KHTML%2C%20like%20Gecko%29%20Version/8.0%20Safari/601.1%20WPE%20AAMP/5.3 - 101.62.241.57 - - 1 - - - http/1.1";
 
         Map<String,String> row = parseMinimal(model, line);
         String service = ServiceResolver.resolveService(row);
+        String dateInsert = nowDateInsertUtc(); 
 
-        System.out.println("MODEL=" + model + " HOST=" + row.get("xHostHeader") + " PATH=" + row.get("csUriStem") + " → SERVICE=" + service);
-        assertEquals("soip_linear", service);
+        System.out.println("MODEL=" + model + " HOST=" + row.get("requestedHost") + " PATH=" + row.get("csUri") + " → SERVICE=" + service + " | date_insert=" + dateInsert);
+        assertEquals("skygo_vod", service);
     }
 }

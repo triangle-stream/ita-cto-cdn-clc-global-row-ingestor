@@ -79,22 +79,22 @@ public class ServiceResolver {
     }
 
     // Check the service based on host and/or path 
+    private static boolean isSkyGo(String host,String path){
+        return host.contains("skygo") || path.contains("/100e/") || path.contains("qgo") ||
+        host.contains("skyq") || path.contains("skyq");
+    }
     private static boolean isNowTV(String host, String path){
         return host.contains("cssott02.com") || 
                host.contains("cdn13.skycdp.com")
             || path.contains("cssott02.com") || path.contains("cdn13.skycdp.com")
-            || path.contains("now");
-    }
-    private static boolean isSkyGo(String host,String path){
-        return host.contains("skygo") || path.contains("/100e/") || path.contains("qgo") ||
-        host.contains("skyq") || path.contains("skyq");
+            || path.contains("/016a/") || path.contains("now");
     }
     /// VODSTB before Soip cause sometimes they share the host c02.skycdp.com
     private static boolean isVodStb(String host,String path){        
         return host.contains("stb") || path.contains("stb") || host.contains("vod-stb") || host.contains("pdl") || path.contains("nff");
     }    
     private static boolean isSoip(String host,String path){
-        return host.contains("cdn03.skycdp.com") || path.contains("cdn03.skycdp.com") || path.contains("/100e/") ||
+        return host.contains("cdn03.skycdp.com") || path.contains("cdn03.skycdp.com") ||
         host.contains("c02.skycdp.com") || path.contains("c02.skycdp.com");
     }
     private static boolean isHip(String host,String path){
@@ -118,17 +118,17 @@ public class ServiceResolver {
         boolean ivod = isIvod(host,path);
         boolean npvr = isNpvr(host,path);
 
+        // SKY GO ------------------------------------------------------------ 
+        if (isSkyGo(host,path)){
+            if (live) return "skygo_linear";
+            if (vod)  return "skygo_vod";
+        }
         // NOW TV ------------------------------------------------------------ 
         if (isNowTV(host,path)){
             if (live) return "nowtv_linear";
             if (vod)  return "nowtv_vod";
         }
 
-        // SKY GO ------------------------------------------------------------ 
-        if (isSkyGo(host,path)){
-            if (live) return "skygo_linear";
-            if (vod)  return "skygo_vod";
-        }
 
         // VOD-STB ----------------------------------------------------- 
         if (isVodStb(host,path)){
