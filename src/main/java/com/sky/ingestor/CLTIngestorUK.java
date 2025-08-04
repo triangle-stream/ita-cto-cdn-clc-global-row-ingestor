@@ -2,7 +2,6 @@ package com.sky.ingestor;
 
 // Imports for Java
 import java.time.Instant;
-import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
@@ -33,8 +32,8 @@ import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.Validation;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.transforms.Create;
-/// Imports for debugging and logging
 import org.apache.beam.sdk.transforms.DoFn;
+/// Imports for debugging and logging
 import org.apache.beam.sdk.transforms.Filter;
 import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.ParDo;
@@ -80,6 +79,53 @@ public class CLTIngestorUK {
     private static final DateTimeFormatter DT_INS =
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
                      .withZone(ZoneOffset.UTC);
+
+    // DateTime for date suffix in nomatch files name
+    private static final DateTimeFormatter DT_NM =
+    DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
+                     .withZone(ZoneOffset.UTC);
+
+    // Do not write TXT nomatch if empty
+    private static void writeIfNotEmpty(
+        PCollection<String> lines,
+        ValueProvider<String> prefix,
+        String stepName) {
+        
+      // Conta gli elementi (per bounded, Count.globally() emette 0 anche se vuoto)
+      PCollectionView<Long> cntView = lines
+          .apply(stepName + "_Count", org.apache.beam.sdk.transforms.Count.globally())
+          .apply(stepName + "_AsSingleton", View.asSingleton());
+        
+      // Gate: emetti le righe solo se count > 0
+      PCollection<String> gated = lines.apply(stepName + "_GateIfNonEmpty",
+          ParDo.of(new DoFn<String, String>() {
+            @ProcessElement
+            public void processElement(ProcessContext c) {
+              Long n = c.sideInput(cntView);
+              if (n != null && n > 0) {
+                c.output(c.element());
+              }
+            }
+          }).withSideInputs(cntView));
+      
+      // Se la collezione è vuota, 'gated' non produce nessun elemento → nessun file creato
+      gated.apply(stepName + "_Write",
+          TextIO.write()
+                .to(prefix)
+                .withSuffix(".txt.gz")
+                .withCompression(Compression.GZIP)
+                .withNumShards(1)
+                .withShardNameTemplate("-SSSS-of-NNNN"));
+    }
+
+
+    private static ValueProvider<String> nomatchPrefix(ValueProvider<String> basePrefix, String model) {
+    return ValueProvider.NestedValueProvider.of(basePrefix, (String b) -> {
+        String ts = DT_NM.format(Instant.now());
+        String base = (b.endsWith("/") ? b : b + "/");
+        return base + model + "/" + ts + "/" + model + "_nomatch_" + ts;
+        });
+    }
 
     // OTT Services (skyGO/NowTV/SkyQ)
     private static final Set<String> OTT_SERVICES = Set.of(
@@ -132,10 +178,7 @@ public class CLTIngestorUK {
                 .as(CustomPipelineOptions.class);
 
         Pipeline p = Pipeline.create(options);
-
-        // Current date YYYYMMDD
-        String dateSuffix = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-
+        
         PCollection<String> csvFromDag =
             p.apply("CSVFromDAG",
                 Create.ofProvider(options.getInputFileList(), StringUtf8Coder.of()));
@@ -222,6 +265,7 @@ public class CLTIngestorUK {
                   String[] toks;
                     switch (model) {
                       case "raiway":
+                      case "cloudfront_legacy":
                         toks = line.split("\t", -1);
                         break;
                       default:
@@ -336,46 +380,59 @@ public class CLTIngestorUK {
 
         PCollectionList<KV<String,String>> partsKV =
             nomatchByModel.apply("PartitionByModel",
-                Partition.of(4, (Partition.PartitionFn<KV<String,String>>) (kv, numPartitions) -> {
+                Partition.of(6, (Partition.PartitionFn<KV<String,String>>) (kv, numPartitions) -> {
                   String model = kv.getKey();
                   if ("akamai".equals(model))     return 0;
                   if ("cloudfront".equals(model)) return 1;
-                  if ("skycdn".equals(model))     return 2;
-                  if ("raiway".equals(model))     return 3;  // TODO when raiway lands
-                  return 3; // fallback
+                  if ("cloudfront_legacy".equals(model))     return 2;
+                  if ("skycdn".equals(model))     return 3;
+                  if ("raiway".equals(model))     return 4;
+                    return 5; // default partition for unknown models
                 }));
             
         PCollection<String> akamaiLines    = partsKV.get(0)
             .apply("DropKeyAkamai",    MapElements.into(TypeDescriptors.strings()).via(KV::getValue));
+
         PCollection<String> cloudfrontLines = partsKV.get(1)
             .apply("DropKeyCloudFront",MapElements.into(TypeDescriptors.strings()).via(KV::getValue));
-        PCollection<String> skycdnLines     = partsKV.get(2)
-            .apply("DropKeySkyCDN",    MapElements.into(TypeDescriptors.strings()).via(KV::getValue));
-        PCollection<String> raiwayLines     = partsKV.get(3)
+
+        PCollection<String> cloudfrontLegacyLines     = partsKV.get(2)
+            .apply("DropKeyCloudfrontLegacyLines",MapElements.into(TypeDescriptors.strings()).via(KV::getValue));
+
+        PCollection<String> skycdnLines     = partsKV.get(3)
+            .apply("DropKeySkyCDN",MapElements.into(TypeDescriptors.strings()).via(KV::getValue));
+
+        PCollection<String> raiwayLines     = partsKV.get(4)
             .apply("DropKeyRaiway",    MapElements.into(TypeDescriptors.strings()).via(KV::getValue));
-            
+        
+            PCollection<String> unknownLines     = partsKV.get(5)
+        .apply("DropKeyNomatchModel",    MapElements.into(TypeDescriptors.strings()).via(KV::getValue));
+
         PCollectionList<String> parts = PCollectionList.of(akamaiLines)
-            .and(cloudfrontLines)
-            .and(skycdnLines)
-            .and(raiwayLines);
-            
+                                                      .and(cloudfrontLines)
+                                                      .and(cloudfrontLegacyLines)
+                                                      .and(skycdnLines)
+                                                      .and(raiwayLines)
+                                                      .and(unknownLines);  
+          
+                                                      
         ValueProvider<String> basePrefix = options.getTxtOutputPrefix(); // must end with '/'
             
         // For each model, build the file prefix like: <base>/akamai_nomatch_<YYYYMMDD>
-        ValueProvider<String> akamaiPrefix = ValueProvider.NestedValueProvider.of(
-            basePrefix, (String b) -> (b.endsWith("/") ? b : b + "/") + "akamai_nomatch_" + dateSuffix);
-        ValueProvider<String> cloudfrontPrefix = ValueProvider.NestedValueProvider.of(
-            basePrefix, (String b) -> (b.endsWith("/") ? b : b + "/") + "cloudfront_nomatch_" + dateSuffix);
-        ValueProvider<String> skycdnPrefix = ValueProvider.NestedValueProvider.of(
-            basePrefix, (String b) -> (b.endsWith("/") ? b : b + "/") + "skycdn_nomatch_" + dateSuffix);
-        ValueProvider<String> raiwayPrefix = ValueProvider.NestedValueProvider.of(
-            basePrefix, (String b) -> (b.endsWith("/") ? b : b + "/") + "raiway_nomatch_" + dateSuffix);
-            
+        ValueProvider<String> akamaiPrefix    = nomatchPrefix(basePrefix, "akamai");
+        ValueProvider<String> cloudfrontPrefix= nomatchPrefix(basePrefix, "cloudfront");
+        ValueProvider<String> cloudfrontLegacyPrefix= nomatchPrefix(basePrefix, "cloudfront_legacy");
+        ValueProvider<String> skycdnPrefix    = nomatchPrefix(basePrefix, "skycdn");
+        ValueProvider<String> raiwayPrefix    = nomatchPrefix(basePrefix, "raiway");
+        ValueProvider<String> unknownPrefix    = nomatchPrefix(basePrefix, "unknown");
+
+
         // Write each partition only if it has elements;
+        /* OLDDD
         parts.get(0).apply("WriteTXT_akamai",
             TextIO.write()
                   .to(akamaiPrefix)
-                  .withSuffix(".txt.gz")
+                  .withSuffix(".txt")
                   .withCompression(Compression.GZIP)
                   .withNumShards(1)
                   .withShardNameTemplate("-SSSS-of-NNNN"));
@@ -383,27 +440,52 @@ public class CLTIngestorUK {
         parts.get(1).apply("WriteTXT_cloudfront",
             TextIO.write()
                   .to(cloudfrontPrefix)
-                  .withSuffix(".txt.gz")
+                  .withSuffix(".txt")
+                  .withCompression(Compression.GZIP)
+                  .withNumShards(1)
+                  .withShardNameTemplate("-SSSS-of-NNNN"));
+
+        parts.get(2).apply("WriteTXT_cloudfrontLegacy",
+            TextIO.write()
+                  .to(cloudfrontLegacyPrefix)
+                  .withSuffix(".txt")
                   .withCompression(Compression.GZIP)
                   .withNumShards(1)
                   .withShardNameTemplate("-SSSS-of-NNNN"));
             
-        parts.get(2).apply("WriteTXT_skycdn",
+        parts.get(3).apply("WriteTXT_skycdn",
             TextIO.write()
                   .to(skycdnPrefix)
-                  .withSuffix(".txt.gz")
+                  .withSuffix(".txt")
                   .withCompression(Compression.GZIP)
                   .withNumShards(1)
                   .withShardNameTemplate("-SSSS-of-NNNN"));
             
-        parts.get(3).apply("WriteTXT_raiway",
+        parts.get(4).apply("WriteTXT_raiway",
             TextIO.write()
                   .to(raiwayPrefix)
-                  .withSuffix(".txt.gz")
+                  .withSuffix(".txt")
                   .withCompression(Compression.GZIP)
                   .withNumShards(1)
                   .withShardNameTemplate("-SSSS-of-NNNN"));
+
+        parts.get(5).apply("WriteTXT_raiway",
+            TextIO.write()
+                  .to(unknownPrefix)
+                  .withSuffix(".txt")
+                  .withCompression(Compression.GZIP)
+                  .withNumShards(1)
+                  .withShardNameTemplate("-SSSS-of-NNNN"));
+        */
         
+        writeIfNotEmpty(akamaiLines,            akamaiPrefix,            "AkamaiTXT");
+        writeIfNotEmpty(cloudfrontLines,        cloudfrontPrefix,        "CloudfrontTXT");
+        writeIfNotEmpty(cloudfrontLegacyLines,  cloudfrontLegacyPrefix,  "CloudfrontLegacyTXT");
+        writeIfNotEmpty(skycdnLines,            skycdnPrefix,            "SkycdnTXT");
+        writeIfNotEmpty(raiwayLines,            raiwayPrefix,            "RaiwayTXT");
+        writeIfNotEmpty(unknownLines,           unknownPrefix,           "UnknownTXT");
+
+
         // Run the pipeline
         p.run();        
     }
