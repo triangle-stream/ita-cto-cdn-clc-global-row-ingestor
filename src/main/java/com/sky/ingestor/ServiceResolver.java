@@ -3,6 +3,7 @@ package com.sky.ingestor;
 import java.net.URI;
 import java.util.Map;
 
+
 public class ServiceResolver {
 
     // Helpers 
@@ -31,6 +32,9 @@ public class ServiceResolver {
             case "cloudfront":
                 return new String[]{ lc(row,"xHostHeader"),
                                      lc(row,"csUriStem")   };
+            case "cloudfront_legacy":
+                return new String[]{ lc(row,"xHostHeader"),
+                                     lc(row,"csUriStem")   };
             case "raiway": {
                 String url  = row.getOrDefault("csUri", "");
                 String host = lc(row, "requestedHost");
@@ -57,10 +61,15 @@ public class ServiceResolver {
     }
 
     // Check if it's linear, vod, etc. 
+    private static boolean isAds(String host,String path){
+        return host.contains("ads")   || path.contains("ads");
+    }
     private static boolean isLive(String host, String path){
         return host.contains("lin")               ||
+               host.contains("live")               ||
                path.contains("lin")               ||
                path.contains("live")              ||
+               path.contains("/service/")             ||
                path.contains("/channel");
     }
     private static boolean isVod(String host, String path){
@@ -68,9 +77,7 @@ public class ServiceResolver {
                path.contains(".nff")             ||
                path.contains("vod");
     }
-    private static boolean isAds(String host,String path){
-        return host.contains("ads")   || path.contains("ads");
-    }
+
     private static boolean isIvod(String host,String path){
         return host.contains("ivod")   || path.contains("ivod");
     }
