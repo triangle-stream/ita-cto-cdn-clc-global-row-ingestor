@@ -91,12 +91,10 @@ public class CLTIngestorUK {
         ValueProvider<String> prefix,
         String stepName) {
         
-      // Conta gli elementi (per bounded, Count.globally() emette 0 anche se vuoto)
       PCollectionView<Long> cntView = lines
           .apply(stepName + "_Count", org.apache.beam.sdk.transforms.Count.globally())
           .apply(stepName + "_AsSingleton", View.asSingleton());
         
-      // Gate: emetti le righe solo se count > 0
       PCollection<String> gated = lines.apply(stepName + "_GateIfNonEmpty",
           ParDo.of(new DoFn<String, String>() {
             @ProcessElement
@@ -108,7 +106,6 @@ public class CLTIngestorUK {
             }
           }).withSideInputs(cntView));
       
-      // Se la collezione è vuota, 'gated' non produce nessun elemento → nessun file creato
       gated.apply(stepName + "_Write",
           TextIO.write()
                 .to(prefix)
