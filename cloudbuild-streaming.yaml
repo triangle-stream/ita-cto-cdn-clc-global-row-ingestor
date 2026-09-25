@@ -24,7 +24,7 @@ steps:
           com.sky.ingestor.CLTIngestorUKStreaming \
           --runner=DataflowRunner \
           --streaming \
-          --enableStreamingEngine \
+          --experiments=enable_streaming_engine \
           --project="$_PROJECT" \
           --region="$_REGION" \
           --gcpTempLocation="gs://$_PROJECT-dataflow/tempLocation" \
