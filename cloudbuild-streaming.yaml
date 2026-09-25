@@ -23,6 +23,8 @@ steps:
         java -cp "target/dataflow-clt-ingestor-uk-$_VERSION-shaded.jar" \
           com.sky.ingestor.CLTIngestorUKStreaming \
           --runner=DataflowRunner \
+          --streaming \
+          --enableStreamingEngine \
           --project="$_PROJECT" \
           --region="$_REGION" \
           --gcpTempLocation="gs://$_PROJECT-dataflow/tempLocation" \
