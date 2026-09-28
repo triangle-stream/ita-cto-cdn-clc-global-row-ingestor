@@ -98,6 +98,12 @@ def _build_dynamic_message(schema: list[bigquery.SchemaField], message_name: str
 
 
 @dataclass
+class PendingAppend:
+    future: object
+    rows: int
+
+
+@dataclass
 class TableWriter:
     project: str
     dataset: str
@@ -153,22 +159,25 @@ class TableWriter:
         request.proto_rows = proto_data
         return self.append_stream.send(request)
 
-    def append_rows(self, rows: list[dict]) -> int:
+    def submit_rows(self, rows: list[dict]) -> list[PendingAppend]:
+        """
+        Serialize and enqueue AppendRows requests without waiting for their
+        responses. The caller must eventually call future.result() on every
+        returned PendingAppend before acknowledging the upstream message.
+        """
         if not rows:
-            return 0
+            return []
 
-        futures = []
+        pending: list[PendingAppend] = []
         batch: list[bytes] = []
         batch_bytes = 0
-        sent_rows = 0
 
         for row in rows:
             serialized = self._serialize_row(row)
             row_bytes = len(serialized)
 
             if batch and batch_bytes + row_bytes > self.target_request_bytes:
-                futures.append(self._send_proto_rows(batch))
-                sent_rows += len(batch)
+                pending.append(PendingAppend(self._send_proto_rows(batch), len(batch)))
                 batch = []
                 batch_bytes = 0
 
@@ -176,13 +185,18 @@ class TableWriter:
             batch_bytes += row_bytes
 
         if batch:
-            futures.append(self._send_proto_rows(batch))
-            sent_rows += len(batch)
+            pending.append(PendingAppend(self._send_proto_rows(batch), len(batch)))
 
-        for future in futures:
-            future.result()
+        return pending
 
-        return sent_rows
+    def append_rows(self, rows: list[dict]) -> int:
+        """Synchronous compatibility wrapper."""
+        pending = self.submit_rows(rows)
+        written = 0
+        for append in pending:
+            append.future.result()
+            written += append.rows
+        return written
 
     def close(self):
         self.append_stream.close()
