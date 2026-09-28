@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 
 from flask import Flask, jsonify, request
 from google.cloud import storage
@@ -27,6 +27,7 @@ if not PROJECT_ID:
 EXPECTED_PREFIX = os.getenv("EXPECTED_PREFIX", "CDN_ITA/skycdn/")
 TARGET_REQUEST_BYTES = int(os.getenv("BQ_APPEND_TARGET_BYTES", "2000000"))
 ROW_BUFFER_LIMIT = int(os.getenv("BQ_ROW_BUFFER_ROWS", "5000"))
+MAX_PENDING_APPENDS = int(os.getenv("BQ_MAX_PENDING_APPENDS", "16"))
 MAX_NOMATCH_LOG_SAMPLES = int(os.getenv("MAX_NOMATCH_LOG_SAMPLES", "3"))
 
 storage_client = storage.Client()
@@ -80,6 +81,7 @@ def process_object(bucket_name: str, object_name: str, generation: str | None) -
 
     rows_by_destination: dict[tuple[str, str], list[dict]] = defaultdict(list)
     destination_counts: dict[str, int] = defaultdict(int)
+    pending_appends = deque()
 
     lines_read = 0
     parsed_rows = 0
@@ -89,17 +91,31 @@ def process_object(bucket_name: str, object_name: str, generation: str | None) -
     malformed_rows = 0
     nomatch_samples = []
 
-    def flush(destination: tuple[str, str]):
+    def wait_one():
         nonlocal written_rows
+        destination_name, pending = pending_appends.popleft()
+        pending.future.result()
+        written_rows += pending.rows
+        destination_counts[destination_name] += pending.rows
+
+    def flush(destination: tuple[str, str]):
         rows = rows_by_destination[destination]
         if not rows:
             return
 
         dataset, table = destination
+        destination_name = f"{dataset}.{table}"
         table_writer = writer_manager.get_writer(dataset, table)
-        written = table_writer.append_rows(rows)
-        written_rows += written
-        destination_counts[f"{dataset}.{table}"] += written
+
+        for pending in table_writer.submit_rows(rows):
+            pending_appends.append((destination_name, pending))
+
+            # Bound memory and the number of outstanding gRPC requests while
+            # still allowing AppendRows responses to overlap with parsing and
+            # subsequent sends.
+            if len(pending_appends) >= MAX_PENDING_APPENDS:
+                wait_one()
+
         rows.clear()
 
     with _open_gzip_lines(bucket_name, object_name, generation) as lines:
@@ -142,6 +158,11 @@ def process_object(bucket_name: str, object_name: str, generation: str | None) -
 
     for destination in list(rows_by_destination.keys()):
         flush(destination)
+
+    # Pub/Sub must not be ACKed until every append for this object has been
+    # confirmed by BigQuery.
+    while pending_appends:
+        wait_one()
 
     elapsed = time.monotonic() - started
     result = {
