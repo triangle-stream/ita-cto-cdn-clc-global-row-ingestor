@@ -29,6 +29,8 @@ The service dynamically reads the existing BigQuery table schema and builds the 
 
 ## Deploy
 
+For the first test, deliberately cap scaling at two instances. Increase only after validating throughput and row correctness.
+
 From this directory:
 
 ```bash
@@ -41,8 +43,8 @@ gcloud run deploy clt-skycdn-ingestor \
   --memory=1Gi \
   --concurrency=1 \
   --min=0 \
-  --max=50 \
-  --timeout=900 \
+  --max=2 \
+  --timeout=600 \
   --set-env-vars=BQ_PROJECT=<project>,EXPECTED_PREFIX=CDN_ITA/skycdn/,BQ_APPEND_TARGET_BYTES=2000000 \
   --no-allow-unauthenticated
 ```
@@ -89,6 +91,14 @@ gcloud projects add-iam-policy-binding <project> \
   --role=roles/iam.serviceAccountTokenCreator
 ```
 
+Set the subscription acknowledgement deadline to the Pub/Sub maximum of 600 seconds before enabling push:
+
+```bash
+gcloud pubsub subscriptions update clt-ingestor-skycdn-streaming \
+  --project=<project> \
+  --ack-deadline=600
+```
+
 Update the existing subscription:
 
 ```bash
@@ -101,7 +111,7 @@ gcloud pubsub subscriptions modify-push-config clt-ingestor-skycdn-streaming \
 
 ## First test
 
-Prefer a tiny replay (5-20 files) before releasing an existing large backlog.
+Before enabling push on a large existing backlog, call the Cloud Run endpoint manually with one known gzip object using a Pub/Sub-shaped JSON payload. Then enable push with `max-instances=2` and observe backlog/latency.
 
 Watch logs:
 
@@ -112,14 +122,20 @@ gcloud run services logs read clt-skycdn-ingestor \
   --limit=100
 ```
 
-Watch subscription backlog:
+Useful monitoring metrics are `num_undelivered_messages` and `oldest_unacked_message_age` in Cloud Monitoring.
+
+## Scale after validation
+
+For example:
 
 ```bash
-gcloud pubsub subscriptions describe clt-ingestor-skycdn-streaming \
-  --project=<project>
+gcloud run services update clt-skycdn-ingestor \
+  --project=<project> \
+  --region=europe-west1 \
+  --max=20
 ```
 
-Useful monitoring metrics are `num_undelivered_messages` and `oldest_unacked_message_age` in Cloud Monitoring.
+Increase gradually while observing Pub/Sub backlog, Cloud Run CPU, request latency, and BigQuery write errors.
 
 ## Rollback to pull mode
 
