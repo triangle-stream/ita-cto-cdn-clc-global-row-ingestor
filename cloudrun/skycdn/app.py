@@ -65,7 +65,11 @@ def _open_gzip_lines(bucket_name: str, object_name: str, generation: str | None)
     generation_int = int(generation) if generation else None
     blob = bucket.blob(object_name, generation=generation_int)
 
-    raw = blob.open("rb")
+    # Important: some CDN objects are stored as gzip AND carry
+    # Content-Encoding: gzip metadata. Cloud Storage may otherwise perform
+    # decompressive transcoding while serving the object. We need the exact
+    # stored gzip bytes because gzip.GzipFile performs decompression locally.
+    raw = blob.open("rb", raw_download=True)
     gz = gzip.GzipFile(fileobj=raw, mode="rb")
     return io.TextIOWrapper(gz, encoding="utf-8", errors="replace", newline="")
 
