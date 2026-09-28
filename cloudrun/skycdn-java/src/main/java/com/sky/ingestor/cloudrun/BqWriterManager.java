@@ -10,7 +10,6 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.json.JSONArray;
-import org.json.JSONObject;
 
 final class BqWriterManager implements Closeable {
     record Pending(ApiFuture<AppendRowsResponse> future, int rows, String destination) {}
@@ -44,7 +43,6 @@ final class BqWriterManager implements Closeable {
             JsonStreamWriter created = JsonStreamWriter
                 .newBuilder(tableName, client)
                 .setEnableConnectionPool(true)
-                .setMaxInflightRequests(100)
                 .build();
             writers.put(key, created);
             System.out.printf("Opened BigQuery default stream writer for %s%n", key);
