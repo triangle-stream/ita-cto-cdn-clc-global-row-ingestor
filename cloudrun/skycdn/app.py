@@ -26,6 +26,7 @@ if not PROJECT_ID:
 
 EXPECTED_PREFIX = os.getenv("EXPECTED_PREFIX", "CDN_ITA/skycdn/")
 TARGET_REQUEST_BYTES = int(os.getenv("BQ_APPEND_TARGET_BYTES", "2000000"))
+ROW_BUFFER_LIMIT = int(os.getenv("BQ_ROW_BUFFER_ROWS", "5000"))
 MAX_NOMATCH_LOG_SAMPLES = int(os.getenv("MAX_NOMATCH_LOG_SAMPLES", "3"))
 
 storage_client = storage.Client()
@@ -66,8 +67,7 @@ def _open_gzip_lines(bucket_name: str, object_name: str, generation: str | None)
 
     raw = blob.open("rb")
     gz = gzip.GzipFile(fileobj=raw, mode="rb")
-    text = io.TextIOWrapper(gz, encoding="utf-8", errors="replace", newline="")
-    return text
+    return io.TextIOWrapper(gz, encoding="utf-8", errors="replace", newline="")
 
 
 def process_object(bucket_name: str, object_name: str, generation: str | None) -> dict:
@@ -75,12 +75,28 @@ def process_object(bucket_name: str, object_name: str, generation: str | None) -
     date_insert = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
     rows_by_destination: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    destination_counts: dict[str, int] = defaultdict(int)
+
     lines_read = 0
     parsed_rows = 0
+    written_rows = 0
     nomatch_rows = 0
     unsupported_rows = 0
     malformed_rows = 0
     nomatch_samples = []
+
+    def flush(destination: tuple[str, str]):
+        nonlocal written_rows
+        rows = rows_by_destination[destination]
+        if not rows:
+            return
+
+        dataset, table = destination
+        table_writer = writer_manager.get_writer(dataset, table)
+        written = table_writer.append_rows(rows)
+        written_rows += written
+        destination_counts[f"{dataset}.{table}"] += written
+        rows.clear()
 
     with _open_gzip_lines(bucket_name, object_name, generation) as lines:
         for raw_line in lines:
@@ -108,6 +124,9 @@ def process_object(bucket_name: str, object_name: str, generation: str | None) -
                 rows_by_destination[destination].append(bq_row)
                 parsed_rows += 1
 
+                if len(rows_by_destination[destination]) >= ROW_BUFFER_LIMIT:
+                    flush(destination)
+
             except Exception as exc:
                 malformed_rows += 1
                 LOG.warning(
@@ -117,13 +136,8 @@ def process_object(bucket_name: str, object_name: str, generation: str | None) -
                     exc,
                 )
 
-    written_rows = 0
-    destination_counts = {}
-    for (dataset, table), rows in rows_by_destination.items():
-        table_writer = writer_manager.get_writer(dataset, table)
-        written = table_writer.append_rows(rows)
-        written_rows += written
-        destination_counts[f"{dataset}.{table}"] = written
+    for destination in list(rows_by_destination.keys()):
+        flush(destination)
 
     elapsed = time.monotonic() - started
     result = {
@@ -136,7 +150,7 @@ def process_object(bucket_name: str, object_name: str, generation: str | None) -
         "nomatch_rows": nomatch_rows,
         "unsupported_rows": unsupported_rows,
         "malformed_rows": malformed_rows,
-        "destinations": destination_counts,
+        "destinations": dict(destination_counts),
         "elapsed_seconds": round(elapsed, 3),
     }
 
