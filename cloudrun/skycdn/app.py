@@ -61,18 +61,19 @@ def _notification_from_envelope(envelope: dict) -> tuple[str, str, str | None, s
     return bucket, object_name, generation, event_type
 
 
-def _open_gzip_lines(bucket_name: str, object_name: str, generation: str | None):
+def _download_gzip_bytes(bucket_name: str, object_name: str, generation: str | None) -> bytes:
+    """
+    Download the exact stored gzip object in one request.
+
+    raw_download=True avoids Cloud Storage decompressive transcoding for objects
+    carrying Content-Encoding: gzip. For the current CDN log sizes, buffering the
+    compressed object in memory is substantially more efficient than using
+    Blob.open(), which performs ranged reads underneath gzip.GzipFile.
+    """
     bucket = storage_client.bucket(bucket_name)
     generation_int = int(generation) if generation else None
     blob = bucket.blob(object_name, generation=generation_int)
-
-    # Important: some CDN objects are stored as gzip AND carry
-    # Content-Encoding: gzip metadata. Cloud Storage may otherwise perform
-    # decompressive transcoding while serving the object. We need the exact
-    # stored gzip bytes because gzip.GzipFile performs decompression locally.
-    raw = blob.open("rb", raw_download=True)
-    gz = gzip.GzipFile(fileobj=raw, mode="rb")
-    return io.TextIOWrapper(gz, encoding="utf-8", errors="replace", newline="")
+    return blob.download_as_bytes(raw_download=True)
 
 
 def process_object(bucket_name: str, object_name: str, generation: str | None) -> dict:
@@ -91,84 +92,102 @@ def process_object(bucket_name: str, object_name: str, generation: str | None) -
     malformed_rows = 0
     nomatch_samples = []
 
+    bq_submit_seconds = 0.0
+    bq_wait_seconds = 0.0
+
     def wait_one():
-        nonlocal written_rows
+        nonlocal written_rows, bq_wait_seconds
         destination_name, pending = pending_appends.popleft()
+        wait_started = time.monotonic()
         pending.future.result()
+        bq_wait_seconds += time.monotonic() - wait_started
         written_rows += pending.rows
         destination_counts[destination_name] += pending.rows
 
     def flush(destination: tuple[str, str]):
+        nonlocal bq_submit_seconds
         rows = rows_by_destination[destination]
         if not rows:
             return
 
         dataset, table = destination
         destination_name = f"{dataset}.{table}"
-        table_writer = writer_manager.get_writer(dataset, table)
 
-        for pending in table_writer.submit_rows(rows):
+        submit_started = time.monotonic()
+        table_writer = writer_manager.get_writer(dataset, table)
+        submitted = table_writer.submit_rows(rows)
+        bq_submit_seconds += time.monotonic() - submit_started
+
+        for pending in submitted:
             pending_appends.append((destination_name, pending))
 
-            # Bound memory and the number of outstanding gRPC requests while
-            # still allowing AppendRows responses to overlap with parsing and
-            # subsequent sends.
             if len(pending_appends) >= MAX_PENDING_APPENDS:
                 wait_one()
 
         rows.clear()
 
-    with _open_gzip_lines(bucket_name, object_name, generation) as lines:
-        for raw_line in lines:
-            line = raw_line.rstrip("\r\n")
-            if not line:
-                continue
+    download_started = time.monotonic()
+    compressed = _download_gzip_bytes(bucket_name, object_name, generation)
+    download_seconds = time.monotonic() - download_started
 
-            lines_read += 1
-            try:
-                parsed = parse_fields(line)
-                service = resolve_service(parsed)
-
-                if service == "nomatch":
-                    nomatch_rows += 1
-                    if len(nomatch_samples) < MAX_NOMATCH_LOG_SAMPLES:
-                        nomatch_samples.append(line[:1000])
+    loop_started = time.monotonic()
+    with gzip.GzipFile(fileobj=io.BytesIO(compressed), mode="rb") as gz:
+        with io.TextIOWrapper(gz, encoding="utf-8", errors="replace", newline="") as lines:
+            for raw_line in lines:
+                line = raw_line.rstrip("\r\n")
+                if not line:
                     continue
 
-                destination = destination_for(service)
-                if destination is None:
-                    unsupported_rows += 1
-                    continue
+                lines_read += 1
+                try:
+                    parsed = parse_fields(line)
+                    service = resolve_service(parsed)
 
-                bq_row = map_to_bq_row(parsed, object_name, date_insert)
-                rows_by_destination[destination].append(bq_row)
-                parsed_rows += 1
+                    if service == "nomatch":
+                        nomatch_rows += 1
+                        if len(nomatch_samples) < MAX_NOMATCH_LOG_SAMPLES:
+                            nomatch_samples.append(line[:1000])
+                        continue
 
-                if len(rows_by_destination[destination]) >= ROW_BUFFER_LIMIT:
-                    flush(destination)
+                    destination = destination_for(service)
+                    if destination is None:
+                        unsupported_rows += 1
+                        continue
 
-            except Exception as exc:
-                malformed_rows += 1
-                LOG.warning(
-                    "Skipping malformed SkyCDN row object=%s line=%d error=%s",
-                    object_name,
-                    lines_read,
-                    exc,
-                )
+                    bq_row = map_to_bq_row(parsed, object_name, date_insert)
+                    rows_by_destination[destination].append(bq_row)
+                    parsed_rows += 1
+
+                    if len(rows_by_destination[destination]) >= ROW_BUFFER_LIMIT:
+                        flush(destination)
+
+                except Exception as exc:
+                    malformed_rows += 1
+                    LOG.warning(
+                        "Skipping malformed SkyCDN row object=%s line=%d error=%s",
+                        object_name,
+                        lines_read,
+                        exc,
+                    )
 
     for destination in list(rows_by_destination.keys()):
         flush(destination)
 
-    # Pub/Sub must not be ACKed until every append for this object has been
-    # confirmed by BigQuery.
+    loop_seconds = time.monotonic() - loop_started
+
+    final_wait_started = time.monotonic()
     while pending_appends:
         wait_one()
+    final_wait_seconds = time.monotonic() - final_wait_started
 
     elapsed = time.monotonic() - started
+    approx_cpu_seconds = max(0.0, loop_seconds - bq_submit_seconds - bq_wait_seconds)
+
     result = {
         "bucket": bucket_name,
         "object": object_name,
         "generation": generation,
+        "compressed_bytes": len(compressed),
         "lines_read": lines_read,
         "parsed_rows": parsed_rows,
         "written_rows": written_rows,
@@ -176,6 +195,14 @@ def process_object(bucket_name: str, object_name: str, generation: str | None) -
         "unsupported_rows": unsupported_rows,
         "malformed_rows": malformed_rows,
         "destinations": dict(destination_counts),
+        "timings": {
+            "download_seconds": round(download_seconds, 3),
+            "loop_seconds": round(loop_seconds, 3),
+            "bq_submit_seconds": round(bq_submit_seconds, 3),
+            "bq_wait_seconds": round(bq_wait_seconds, 3),
+            "final_bq_wait_seconds": round(final_wait_seconds, 3),
+            "approx_cpu_parse_decompress_seconds": round(approx_cpu_seconds, 3),
+        },
         "elapsed_seconds": round(elapsed, 3),
     }
 
