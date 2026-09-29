@@ -2,6 +2,7 @@
 set -euxo pipefail
 
 META="http://metadata.google.internal/computeMetadata/v1/instance/attributes"
+TOKEN_URL="http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
 HDR="Metadata-Flavor: Google"
 meta() {
   local key="$1"
@@ -32,7 +33,10 @@ for i in $(seq 1 60); do
   sleep 2
 done
 
-gcloud auth configure-docker europe-west1-docker.pkg.dev --quiet
+TOKEN_JSON="$(curl -fsS -H "$HDR" "$TOKEN_URL")"
+ACCESS_TOKEN="$(echo "$TOKEN_JSON" | sed -n 's/.*"access_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+test -n "$ACCESS_TOKEN"
+echo "$ACCESS_TOKEN" | docker login -u oauth2accesstoken --password-stdin https://europe-west1-docker.pkg.dev
 
 docker pull "$IMAGE"
 docker rm -f skycdn-worker || true
