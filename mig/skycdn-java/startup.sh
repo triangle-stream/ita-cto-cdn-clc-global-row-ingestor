@@ -1,9 +1,24 @@
 #!/bin/bash
 set -euxo pipefail
 
-IMAGE="${IMAGE:?missing IMAGE metadata/env}"
-PROJECT="${PROJECT:?missing PROJECT metadata/env}"
-SUBSCRIPTION="${SUBSCRIPTION:?missing SUBSCRIPTION metadata/env}"
+META="http://metadata.google.internal/computeMetadata/v1/instance/attributes"
+HDR="Metadata-Flavor: Google"
+meta() {
+  local key="$1"
+  curl -fsS -H "$HDR" "$META/$key"
+}
+
+IMAGE="$(meta IMAGE)"
+PROJECT="$(meta PROJECT)"
+SUBSCRIPTION="$(meta SUBSCRIPTION)"
+BQ_PROJECT="$(meta BQ_PROJECT || true)"
+EXPECTED_PREFIX="$(meta EXPECTED_PREFIX || true)"
+WORKER_THREADS="$(meta WORKER_THREADS || true)"
+MAX_OUTSTANDING_MESSAGES="$(meta MAX_OUTSTANDING_MESSAGES || true)"
+MAX_OUTSTANDING_BYTES="$(meta MAX_OUTSTANDING_BYTES || true)"
+BQ_ROW_BUFFER_ROWS="$(meta BQ_ROW_BUFFER_ROWS || true)"
+BQ_MAX_PENDING_APPENDS="$(meta BQ_MAX_PENDING_APPENDS || true)"
+
 BQ_PROJECT="${BQ_PROJECT:-$PROJECT}"
 EXPECTED_PREFIX="${EXPECTED_PREFIX:-skycdn/}"
 WORKER_THREADS="${WORKER_THREADS:-4}"
@@ -12,7 +27,7 @@ MAX_OUTSTANDING_BYTES="${MAX_OUTSTANDING_BYTES:-536870912}"
 BQ_ROW_BUFFER_ROWS="${BQ_ROW_BUFFER_ROWS:-5000}"
 BQ_MAX_PENDING_APPENDS="${BQ_MAX_PENDING_APPENDS:-16}"
 
-for i in $(seq 1 30); do
+for i in $(seq 1 60); do
   if docker info >/dev/null 2>&1; then break; fi
   sleep 2
 done
