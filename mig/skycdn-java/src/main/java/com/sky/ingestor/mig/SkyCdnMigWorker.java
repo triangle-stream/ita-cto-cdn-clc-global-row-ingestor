@@ -8,14 +8,14 @@ import com.google.cloud.pubsub.v1.MessageReceiver;
 import com.google.cloud.pubsub.v1.Subscriber;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.Storage;
-import com.google.cloud.storage.StorageOptions;
+import com.google.cloud.storage.StorageOptions;\nimport com.google.cloud.ReadChannel;
 import com.google.pubsub.v1.ProjectSubscriptionName;
 import com.google.pubsub.v1.PubsubMessage;
-import java.io.BufferedReader;
+import java.io.BufferedReader;\nimport java.io.ByteArrayOutputStream;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
+import java.nio.ByteBuffer;\nimport java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -35,7 +35,7 @@ public final class SkyCdnMigWorker {
     private static final String SUBSCRIPTION = env("PUBSUB_SUBSCRIPTION", "clt-ingestor-skycdn-streaming");
     private static final String EXPECTED_PREFIX = env("EXPECTED_PREFIX", "skycdn/");
     private static final int WORKER_THREADS = Integer.parseInt(env("WORKER_THREADS", "4"));
-    private static final long MAX_OUTSTANDING_MESSAGES = Long.parseLong(env("MAX_OUTSTANDING_MESSAGES", "8"));
+    private static final long MAX_OUTSTANDING_MESSAGES = Long.parseLong(env("MAX_OUTSTANDING_MESSAGES", "4"));
     private static final long MAX_OUTSTANDING_BYTES = Long.parseLong(env("MAX_OUTSTANDING_BYTES", "536870912"));
     private static final int ROW_BUFFER_ROWS = Integer.parseInt(env("BQ_ROW_BUFFER_ROWS", "5000"));
     private static final int MAX_PENDING = Integer.parseInt(env("BQ_MAX_PENDING_APPENDS", "16"));
@@ -58,7 +58,7 @@ public final class SkyCdnMigWorker {
         Subscriber subscriber = Subscriber.newBuilder(subscriptionName, receiver)
             .setFlowControlSettings(flow)
             .setExecutorProvider(InstantiatingExecutorProvider.newBuilder().setExecutorThreadCount(WORKER_THREADS).build())
-            .setParallelPullCount(Math.max(1, Math.min(WORKER_THREADS, 4)))
+            .setParallelPullCount(1)
             .build();
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -191,9 +191,23 @@ public final class SkyCdnMigWorker {
             finalWaitSeconds, secondsSince(started));
     }
 
-    private static byte[] download(String bucket, String object, String generation) {
-        if (generation != null && !generation.isBlank()) return STORAGE.readAllBytes(BlobId.of(bucket, object, Long.parseLong(generation)));
-        return STORAGE.readAllBytes(bucket, object);
+    private static byte[] download(String bucket, String object, String generation) throws Exception {
+        BlobId blobId = generation != null && !generation.isBlank()
+            ? BlobId.of(bucket, object, Long.parseLong(generation))
+            : BlobId.of(bucket, object);
+
+        // Storage.reader() returns the raw stored bytes, so gzip objects that
+        // carry Content-Encoding:gzip are not decompressed by GCS in transit.
+        try (ReadChannel channel = STORAGE.reader(blobId);
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            ByteBuffer buffer = ByteBuffer.allocate(1 << 20);
+            while (channel.read(buffer) >= 0) {
+                buffer.flip();
+                out.write(buffer.array(), buffer.position(), buffer.remaining());
+                buffer.clear();
+            }
+            return out.toByteArray();
+        }
     }
 
     private static BqWriterManager createWriters() {
