@@ -1,6 +1,7 @@
 package com.sky.ingestor.mig;
 
 import com.google.api.gax.batching.FlowControlSettings;
+import com.google.api.gax.batching.FlowController.LimitExceededBehavior;
 import com.google.api.gax.core.InstantiatingExecutorProvider;
 import com.google.cloud.pubsub.v1.AckReplyConsumer;
 import com.google.cloud.pubsub.v1.MessageReceiver;
@@ -51,7 +52,7 @@ public final class SkyCdnMigWorker {
         FlowControlSettings flow = FlowControlSettings.newBuilder()
             .setMaxOutstandingElementCount(MAX_OUTSTANDING_MESSAGES)
             .setMaxOutstandingRequestBytes(MAX_OUTSTANDING_BYTES)
-            .setLimitExceededBehavior(FlowControlSettings.LimitExceededBehavior.Block)
+            .setLimitExceededBehavior(LimitExceededBehavior.Block)
             .build();
 
         Subscriber subscriber = Subscriber.newBuilder(subscriptionName, receiver)
