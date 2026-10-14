@@ -135,7 +135,7 @@ public final class SkyCdnMigWorker {
                 if (line.isBlank()) continue;
                 lines++;
                 try {
-                    String[] f = SkyCdnParser.split(line);
+                    SkyCdnParser.Fields f = SkyCdnParser.parse(line);
                     String service = SkyCdnParser.resolveService(f);
                     if ("nomatch".equals(service)) { nomatch++; continue; }
                     SkyCdnParser.Destination destination = SkyCdnParser.destination(service);
