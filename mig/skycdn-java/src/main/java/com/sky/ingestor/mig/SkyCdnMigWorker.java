@@ -40,7 +40,7 @@ public final class SkyCdnMigWorker {
     private static final int WORKER_THREADS = Integer.parseInt(env("WORKER_THREADS", "4"));
     private static final long MAX_OUTSTANDING_MESSAGES = Long.parseLong(env("MAX_OUTSTANDING_MESSAGES", "4"));
     private static final long MAX_OUTSTANDING_BYTES = Long.parseLong(env("MAX_OUTSTANDING_BYTES", "536870912"));
-    private static final int ROW_BUFFER_ROWS = Integer.parseInt(env("BQ_ROW_BUFFER_ROWS", "5000"));
+    private static final int ROW_BUFFER_ROWS = Integer.parseInt(env("BQ_ROW_BUFFER_ROWS", "10000"));
     private static final int MAX_PENDING = Integer.parseInt(env("BQ_MAX_PENDING_APPENDS", "16"));
 
     private static final Storage STORAGE = StorageOptions.getDefaultInstance().getService();
