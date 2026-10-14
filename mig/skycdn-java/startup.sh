@@ -4,6 +4,8 @@ set -euxo pipefail
 META="http://metadata.google.internal/computeMetadata/v1/instance/attributes"
 TOKEN_URL="http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
 HDR="Metadata-Flavor: Google"
+DOCKER_CONFIG_DIR="/var/lib/skycdn-docker-config"
+
 meta() {
   local key="$1"
   curl -fsS -H "$HDR" "$META/$key"
@@ -33,12 +35,19 @@ for i in $(seq 1 60); do
   sleep 2
 done
 
+mkdir -p "$DOCKER_CONFIG_DIR"
+chmod 700 "$DOCKER_CONFIG_DIR"
+
 TOKEN_JSON="$(curl -fsS -H "$HDR" "$TOKEN_URL")"
 ACCESS_TOKEN="$(echo "$TOKEN_JSON" | sed -n 's/.*"access_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
 test -n "$ACCESS_TOKEN"
-echo "$ACCESS_TOKEN" | docker login -u oauth2accesstoken --password-stdin https://europe-west1-docker.pkg.dev
 
-docker pull "$IMAGE"
+echo "$ACCESS_TOKEN" | docker --config "$DOCKER_CONFIG_DIR" login \
+  -u oauth2accesstoken \
+  --password-stdin \
+  https://europe-west1-docker.pkg.dev
+
+docker --config "$DOCKER_CONFIG_DIR" pull "$IMAGE"
 docker rm -f skycdn-worker || true
 
 docker run -d \
