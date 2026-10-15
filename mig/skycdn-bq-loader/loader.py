@@ -10,15 +10,16 @@ from google.api_core.exceptions import NotFound
 from google.cloud import bigquery, storage
 
 PROJECT = os.environ["GCP_PROJECT"]
+BQ_PROJECT = os.getenv("BQ_PROJECT", PROJECT)
 STAGING_BUCKET = os.environ["STAGING_BUCKET"]
 STAGING_PREFIX = os.getenv("STAGING_PREFIX", "pending").strip("/")
 MANIFEST_PREFIX = os.getenv("MANIFEST_PREFIX", "manifests").strip("/")
 BQ_LOCATION = os.getenv("BQ_LOCATION", "europe-west1")
 LOAD_INTERVAL_SECONDS = int(os.getenv("LOAD_INTERVAL_SECONDS", "120"))
-MAX_URIS_PER_LOAD = int(os.getenv("MAX_URIS_PER_LOAD", "5000"))
+MAX_URIS_PER_LOAD = int(os.getenv("MAX_URIS_PER_LOAD", "9000"))
 
 storage_client = storage.Client(project=PROJECT)
-bq_client = bigquery.Client(project=PROJECT)
+bq_client = bigquery.Client(project=BQ_PROJECT)
 bucket = storage_client.bucket(STAGING_BUCKET)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -89,7 +90,7 @@ def load_manifest(name):
     objects = data["objects"]
 
     job_id = f"skycdn_load_{dataset}_{table}_{batch_id}"
-    table_id = f"{PROJECT}.{dataset}.{table}"
+    table_id = f"{BQ_PROJECT}.{dataset}.{table}"
     uris = [f"gs://{STAGING_BUCKET}/{obj}" for obj in objects]
 
     try:
@@ -157,8 +158,8 @@ def run_once():
 
 def main():
     logging.info(
-        "Starting SkyCDN BigQuery file loader project=%s bucket=%s interval=%ss maxUris=%d",
-        PROJECT, STAGING_BUCKET, LOAD_INTERVAL_SECONDS, MAX_URIS_PER_LOAD,
+        "Starting SkyCDN BigQuery file loader project=%s bqProject=%s bucket=%s interval=%ss maxUris=%d",
+        PROJECT, BQ_PROJECT, STAGING_BUCKET, LOAD_INTERVAL_SECONDS, MAX_URIS_PER_LOAD,
     )
     while True:
         started = time.monotonic()
